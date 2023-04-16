@@ -1,0 +1,115 @@
+#located at /etc/varnish/default.vcl
+# Default backend definition.  Set this to point to your content server.
+vcl 4.0;
+
+import directors;    # load the directors
+
+<% node["opsworks"]["layers"]["php-app"]["instances"].each do |key, value| -%>
+<% if value["status"] == "online" -%>
+backend <%= key.dup.tr!("-", "_") %> {
+    .host = "<%= value["private_ip"] %>";
+    .port = "80";
+    .connect_timeout = 60s;
+    .first_byte_timeout = 60s;
+	.between_bytes_timeout = 60s;
+	.max_connections = 800;
+}
+<% end %>
+<% end %>
+
+sub vcl_init {
+    new backend_set = directors.round_robin();
+<% node["opsworks"]["layers"]["php-app"]["instances"].each do |key, value| -%>
+    backend_set.add_backend(<%= key.dup.tr!("-", "_") %>);
+<% end %>
+}
+
+acl purge {
+    "127.0.0.1";
+	"localhost";
+    <% node["opsworks"]["layers"]["php-app"]["instances"].each do |key, value| -%>
+    <% if value["status"] == "online" -%>
+    "<%= value["private_ip"] %>";
+    <% end %>
+    <% end %>
+}
+
+sub vcl_recv {
+    set req.backend_hint = backend_set.backend();
+
+    # Set X-Forwarded-For header for logging in nginx
+    unset  req.http.X-Forwarded-For;
+    set    req.http.X-Forwarded-For = client.ip;
+
+    # Remove has_js and CloudFlare/Google Analytics __* cookies and statcounter is_unique
+    set req.http.Cookie = regsuball(req.http.Cookie, "(^|;\s*)(_[_a-z]+|has_js|is_unique)=[^;]*", "");
+    # Remove a ";" prefix, if present.
+    set req.http.Cookie = regsub(req.http.Cookie, "^;\s*", "");
+
+    # Either the admin pages or the login
+    if (req.url ~ "/wp-(login|admin|cron)" || req.url ~ "preview=true" <% if node["varnish"]["allowCookies"] %>|| req.url ~ "/<%= node["varnish"]["cookieLocation"] %>"  <% end %>) {
+            # Don't cache, pass to backend
+            return (pass);
+    }
+
+    set req.http.Cookie = regsuball(req.http.Cookie, "PHPSESSID=[^;]+(; )?", "");
+
+    # Remove the wp-settings-1 cookie
+    set req.http.Cookie = regsuball(req.http.Cookie, "wp-settings-1=[^;]+(; )?", "");
+
+    # Remove the wp-settings-time-1 cookie
+    set req.http.Cookie = regsuball(req.http.Cookie, "wp-settings-time-1=[^;]+(; )?", "");
+
+    # Remove the wp test cookie
+    set req.http.Cookie = regsuball(req.http.Cookie, "wordpress_test_cookie=[^;]+(;)?", "");
+
+    # Static content unique to the theme can be cached (so no user uploaded images)
+    # The reason I don't take the wp-content/uploads is because of cache size on bigger blogs
+    # that would fill up with all those files getting pushed into cache
+    if (req.url ~ "wp-content/themes/" && req.url ~ "\.(css|js|png|gif|jp(e)?g)") {
+        unset req.http.cookie;
+    }
+
+
+    unset req.http.cookie;
+
+    # Even if no cookies are present, I don't want my "uploads" to be cached due to their potential size
+    # if (req.url ~ "/wp-content/uploads/") {
+    #     return (pass);
+    # }
+
+    # any pages with captchas need to be excluded
+    # if (req.url ~ "^/contact/" || req.url ~ "^/links/domains-for-sale/") {
+    #     return(pass);
+    # }
+
+    # Check the cookies for wordpress-specific items
+    if (req.http.Cookie ~ "wordpress_" || req.http.Cookie ~ "comment_") {
+        # A wordpress specific cookie has been set
+        return (pass);
+    }
+
+    # allow PURGE from localhost
+    if (req.method == "PURGE") {
+        if (!client.ip ~ purge) {
+            return(synth(405,"Not allowed."));
+        }
+        return (purge);
+    }
+
+    # Force lookup if the request is a no-cache request from the client
+#    if (req.http.Cache-Control ~ "no-cache") {
+#    	return (pass);
+#    }
+
+}
+
+sub vcl_backend_response {
+	#set obj.grace = 5m;
+    set beresp.grace = 2m;
+
+    # Drop any cookies Wordpress tries to send back to the client.
+    if (!(bereq.url ~ "wp-(login|admin)") && !(bereq.url ~ "preview=true") <% if node["varnish"]["allowCookies"] %>&& !(bereq.url ~ "<%= node["varnish"]["cookieLocation"] %>")  <% end %>) {
+        unset beresp.http.set-cookie;
+    }
+}
