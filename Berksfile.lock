@@ -1,7 +1,17 @@
 DEPENDENCIES
   clamav
   datadog
+  java (~> 1.39.0)
+  newrelic
   nodejs
+  solr_6
+    git: https://github.com/dayspring-tech/chef-solr_6.git
+    revision: da2bae980f853f7afec92e8d1b3f2b541f63fd58
+    branch: chef-11
+  varnish
+    git: https://github.com/dayspring-tech/varnish.git
+    revision: 5ad4102d39976009e4a2af6f2f22d2baa27d7e68
+    branch: chef-11
 
 GRAPH
   7-zip (1.0.2)
@@ -30,10 +40,17 @@ GRAPH
     build-essential (>= 2.1.2)
   iis (4.1.5)
     windows (>= 1.34.6)
+  java (1.39.0)
+    apt (>= 0.0.0)
   logrotate (1.9.2)
   mysql (6.1.2)
     smf (>= 0.0.0)
     yum-mysql-community (>= 0.0.0)
+  newrelic (2.17.0)
+    apt (~> 2.0)
+    curl (>= 0.0.0)
+    python (>= 0.0.0)
+    yum (~> 3.0)
   nodejs (2.4.4)
     apt (>= 0.0.0)
     ark (>= 0.0.0)
@@ -53,6 +70,14 @@ GRAPH
   rbac (1.0.3)
   smf (2.2.7)
     rbac (>= 1.0.1)
+  solr_6 (1.0.1)
+    java (>= 0.0.0)
+    yum (>= 0.0.0)
+  varnish (1.0.3)
+    apt (~> 2.4)
+    build-essential (>= 0.0.0)
+    yum (~> 3.0)
+    yum-epel (>= 0.0.0)
   windows (1.39.1)
     chef_handler (>= 0.0.0)
   xml (2.0.0)
